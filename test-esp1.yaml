@@ -1,0 +1,217 @@
+esphome:
+  name: test-esp1
+  friendly_name: test-esp1 
+  includes:
+    - process_modbus.h
+  on_loop:
+    then:
+      - lambda: |-
+          process_modbus();
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: "<<<<PASSWORD>>>>"
+    
+ota:
+  - platform: esphome
+    password: "<<<<PASSWORD>>>>"
+
+web_server:
+  port: 80
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Test-esp1 Fallback Hotspot"
+    password: "<<<<PASSWORD>>>>"
+
+captive_portal:
+
+uart:
+  # RS485 — Modbus RTU to Growatt
+  - id: modbus_bus
+    tx_pin: GPIO17
+    rx_pin: GPIO16
+    baud_rate: 9600
+    stop_bits: 1
+
+  # P1 — Dutch smart meter
+  # Pin 2 (Data Request) is wired directly to ESP32 5V pin
+  - id: p1_bus
+    rx_pin:
+      number: GPIO4
+      inverted: false    # BC547 re-inverts signal, corrected back here
+    baud_rate: 115200
+    rx_buffer_size: 2500
+
+# DSMR platform — ESPHome handles all telegram parsing and CRC
+dsmr:
+  id: my_dsmr
+  uart_id: p1_bus
+  max_telegram_length: 2500
+
+sensor:
+- platform: dsmr
+  # Voltages
+  voltage_l1:
+    id: p1_v1
+    name: "Grid Voltage L1"
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+
+  voltage_l2:
+    id: p1_v2
+    name: "Grid Voltage L2"
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+
+  voltage_l3:
+    id: p1_v3
+    name: "Grid Voltage L3"
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+
+    # Currents
+  current_l1:
+    id: p1_i1
+    name: "Grid Current L1"
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+
+  current_l2:
+    id: p1_i2
+    name: "Grid Current L2"
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+
+  current_l3:
+    id: p1_i3
+    name: "Grid Current L3"
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+
+    # Power import per phase (+P in kW)
+  power_delivered_l1:
+    id: p1_p1_pos
+    name: "Grid Power Import L1"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+  power_delivered_l2:
+    id: p1_p2_pos
+    name: "Grid Power Import L2"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+  power_delivered_l3:
+    id: p1_p3_pos
+    name: "Grid Power Import L3"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+    # Power export per phase (-P in kW)
+  power_returned_l1:
+    id: p1_p1_neg
+    name: "Grid Power Export L1"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+  power_returned_l2:
+    id: p1_p2_neg
+    name: "Grid Power Export L2"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+  power_returned_l3:
+    id: p1_p3_neg
+    name: "Grid Power Export L3"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+    # Total power
+  power_delivered:
+    name: "Grid Total Import"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+  power_returned:
+    name: "Grid Total Export"
+    unit_of_measurement: "kW"
+    accuracy_decimals: 3
+
+    # Energy totals
+  energy_delivered_tariff1:
+    name: "Energy Import T1"
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+
+  energy_delivered_tariff2:
+    name: "Energy Import T2"
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+
+  energy_returned_tariff1:
+    name: "Energy Export T1"
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+
+  energy_returned_tariff2:
+    name: "Energy Export T2"
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+
+  # Computed net power per phase (W) for HA dashboard
+- platform: template
+  name: "Grid Net Power L1"
+  unit_of_measurement: "W"
+  accuracy_decimals: 0
+  update_interval: 2s
+  lambda: |-
+    if (isnan(id(p1_p1_pos).state)) return NAN;
+    return (id(p1_p1_pos).state - id(p1_p1_neg).state) * 1000.0f;
+
+- platform: template
+  name: "Grid Net Power L2"
+  unit_of_measurement: "W"
+  accuracy_decimals: 0
+  update_interval: 2s
+  lambda: |-
+    if (isnan(id(p1_p2_pos).state)) return NAN;
+    return (id(p1_p2_pos).state - id(p1_p2_neg).state) * 1000.0f;
+
+- platform: template
+  name: "Grid Net Power L3"
+  unit_of_measurement: "W"
+  accuracy_decimals: 0
+  update_interval: 2s
+  lambda: |-
+    if (isnan(id(p1_p3_pos).state)) return NAN;
+    return (id(p1_p3_pos).state - id(p1_p3_neg).state) * 1000.0f;
+
+- platform: template
+  name: "Grid Net Power Total"
+  unit_of_measurement: "W"
+  accuracy_decimals: 0
+  update_interval: 2s
+  lambda: |-
+    if (isnan(id(p1_p1_pos).state)) return NAN;
+    return (id(p1_p1_pos).state - id(p1_p1_neg).state +
+            id(p1_p2_pos).state - id(p1_p2_neg).state +
+            id(p1_p3_pos).state - id(p1_p3_neg).state) * 1000.0f;
+
+# P1 status indicator — visible in Home Assistant
+binary_sensor:
+  - platform: template
+    name: "P1 Data Valid"
+    lambda: |-
+      return !isnan(id(p1_v1).state) && id(p1_v1).state > 0;
+
